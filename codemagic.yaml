@@ -11,6 +11,9 @@ workflows:
           if [ ! -d "android" ]; then
             flutter create . --org com.p2p.chat --template=app
           fi
+      - name: Get Flutter dependencies
+        script: |
+          flutter pub get
       - name: Force compileSdk 36 and repositories
         script: |
           cat << 'EOF' >> android/build.gradle
