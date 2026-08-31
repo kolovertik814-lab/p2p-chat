@@ -1,8 +1,4 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:file_picker/file_picker.dart';
 
 void main() {
   runApp(const TelegramP2PApp());
@@ -28,15 +24,8 @@ class TelegramP2PApp extends StatelessWidget {
 class MessageModel {
   final String text;
   final bool isMe;
-  final String type; // 'text', 'image'
-  final Uint8List? bytes;
 
-  MessageModel({
-    required this.text,
-    required this.isMe,
-    this.type = 'text',
-    this.bytes,
-  });
+  MessageModel({required this.text, required this.isMe});
 }
 
 class MainChatScreen extends StatefulWidget {
@@ -50,61 +39,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
   final List<MessageModel> _messages = [];
   final TextEditingController _msgController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
-  
-  RTCPeerConnection? _peerConnection;
-  RTCDataChannel? _dataChannel;
-
-  final Map<String, dynamic> _rtcConfig = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-    ]
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _initP2P();
-  }
-
-  Future<void> _initP2P() async {
-    _peerConnection = await createPeerConnection(_rtcConfig);
-
-    RTCDataChannelInit init = RTCDataChannelInit()..binaryType = 'binary';
-    _dataChannel = await _peerConnection!.createDataChannel('chat_channel', init);
-
-    _dataChannel!.onMessage = (RTCDataChannelMessage data) {
-      if (data.isBinary) {
-        setState(() {
-          _messages.add(MessageModel(
-            text: 'Получено фото',
-            isMe: false,
-            type: 'image',
-            bytes: data.binary,
-          ));
-        });
-      } else {
-        setState(() {
-          _messages.add(MessageModel(text: data.text, isMe: false));
-        });
-      }
-    };
-  }
-
-  void _connectToPeerByTag(String tag) {
-    if (tag.isEmpty) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Поиск узла для $tag...')),
-    );
-  }
 
   void _sendTextMessage() {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
-
-    if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
-      _dataChannel!.send(RTCDataChannelMessage(text));
-    }
 
     setState(() {
       _messages.add(MessageModel(text: text, isMe: true));
@@ -112,30 +50,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
   }
 
-  Future<void> _pickAndSendImage() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.single.bytes != null) {
-      Uint8List fileBytes = result.files.single.bytes!;
-      
-      if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
-        _dataChannel!.send(RTCDataChannelMessage.fromBinary(fileBytes));
-      }
-
-      setState(() {
-        _messages.add(MessageModel(
-          text: 'Фотография',
-          isMe: true,
-          type: 'image',
-          bytes: fileBytes,
-        ));
-      });
-    }
+  void _connectToPeerByTag(String tag) {
+    if (tag.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Подключение к улу @$tag...')),
+    );
   }
 
   @override
   void dispose() {
-    _peerConnection?.close();
-    _dataChannel?.close();
     _msgController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -182,12 +105,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       color: msg.isMe ? const Color(0xFF2B5278) : const Color(0xFF182533),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: msg.type == 'image' && msg.bytes != null
-                        ? Image.memory(msg.bytes!, width: 200)
-                        : Text(
-                            msg.text,
-                            style: const TextStyle(color: Colors.white),
-                          ),
+                    child: Text(
+                      msg.text,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                   ),
                 );
               },
@@ -198,10 +119,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file, color: Colors.grey),
-                  onPressed: _pickAndSendImage,
-                ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
