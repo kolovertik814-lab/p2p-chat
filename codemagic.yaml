@@ -11,9 +11,15 @@ workflows:
           if [ ! -d "android" ]; then
             flutter create . --org com.p2p.chat --template=app
           fi
-      - name: Force compileSdk 36 for all subprojects
+      - name: Force compileSdk 36 and add missing repositories
         script: |
           echo "" >> android/build.gradle
+          echo "allprojects {" >> android/build.gradle
+          echo "    repositories {" >> android/build.gradle
+          echo "        google()" >> android/build.gradle
+          echo "        mavenCentral()" >> android/build.gradle
+          echo "    }" >> android/build.gradle
+          echo "}" >> android/build.gradle
           echo "subprojects {" >> android/build.gradle
           echo "    afterEvaluate { project ->" >> android/build.gradle
           echo "        if (project.hasProperty('android')) {" >> android/build.gradle
