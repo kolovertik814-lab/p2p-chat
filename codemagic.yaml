@@ -9,12 +9,8 @@ workflows:
       - name: Create Android project structure if missing
         script: |
           if [ ! -d "android" ]; then
-            echo "Android folder missing. Recreating Flutter project structure..."
             flutter create . --org com.p2p.chat --template=app
           fi
-      - name: Get Flutter packages
-        script: |
-          flutter packages pub get
       - name: Build APK
         script: |
           flutter build apk --release
