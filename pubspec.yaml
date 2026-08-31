@@ -10,8 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   file_picker: ^8.0.0
-  record: ^5.0.0
-  audioplayers: ^6.0.0
 
 dev_dependencies:
   flutter_test:
