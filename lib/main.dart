@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const TelegramP2PApp());
@@ -25,17 +27,23 @@ class TelegramP2PApp extends StatelessWidget {
   }
 }
 
+enum MessageType { text, image }
+
 class ChatMessage {
   final String id;
   final String sender;
-  final String text;
+  final MessageType type;
+  final String? text;
+  final String? imagePath;
   final DateTime timestamp;
   final bool isMe;
 
   ChatMessage({
     required this.id,
     required this.sender,
-    required this.text,
+    required this.type,
+    this.text,
+    this.imagePath,
     required this.timestamp,
     required this.isMe,
   });
@@ -54,7 +62,8 @@ class ChatItem {
 
   String get lastMessageText {
     if (messages.isEmpty) return 'Нет сообщений';
-    return messages.last.text;
+    final last = messages.last;
+    return last.type == MessageType.text ? (last.text ?? '') : '📷 Фотография';
   }
 
   String get lastMessageTime {
@@ -180,6 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ChatMessage(
           id: '1',
           sender: 'support_bot',
+          type: MessageType.text,
           text: 'Привет! Нажмите + внизу или иконку сверху, чтобы добавить собеседника по @логину.',
           timestamp: DateTime.now(),
           isMe: false,
@@ -345,6 +355,7 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _msgController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
 
   void _sendTextMessage() {
     final text = _msgController.text.trim();
@@ -355,6 +366,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ChatMessage(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           sender: widget.myUsername,
+          type: MessageType.text,
           text: text,
           timestamp: DateTime.now(),
           isMe: true,
@@ -362,6 +374,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       );
       _msgController.clear();
     });
+  }
+
+  Future<void> _pickAndSendImage() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        widget.chat.messages.add(
+          ChatMessage(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            sender: widget.myUsername,
+            type: MessageType.image,
+            imagePath: image.path,
+            timestamp: DateTime.now(),
+            isMe: true,
+          ),
+        );
+      });
+    }
   }
 
   @override
@@ -408,7 +438,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8),
                     constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                     decoration: BoxDecoration(
                       color: msg.isMe ? const Color(0xFF2B5278) : const Color(0xFF182533),
@@ -417,14 +447,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          msg.text,
-                          style: const TextStyle(color: Colors.white, fontSize: 15),
-                        ),
+                        if (msg.type == MessageType.text)
+                          Padding(
+                            padding: const EdgeInsets.all(4.0),
+                            child: Text(
+                              msg.text ?? '',
+                              style: const TextStyle(color: Colors.white, fontSize: 15),
+                            ),
+                          ),
+                        if (msg.type == MessageType.image && msg.imagePath != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.file(
+                              File(msg.imagePath!),
+                              width: 200,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
                         const SizedBox(height: 4),
-                        Text(
-                          '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
-                          style: const TextStyle(color: Colors.grey, fontSize: 10),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4.0),
+                          child: Text(
+                            '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(color: Colors.grey, fontSize: 10),
+                          ),
                         ),
                       ],
                     ),
@@ -438,6 +484,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.attach_file, color: Colors.grey),
+                  onPressed: _pickAndSendImage,
+                ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
