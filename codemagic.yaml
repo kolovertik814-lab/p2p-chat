@@ -15,28 +15,29 @@ workflows:
         script: |
           cat << 'EOF' >> android/build.gradle
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
 
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                compileSdkVersion 36
-            }
-        }
-    }
-}
-EOF
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          compileSdkVersion 36
+                      }
+                  }
+              }
+          }
+          EOF
       - name: Build APK via Gradle
         script: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease
     artifacts:
+      - android/app/build/outputs/apk/release/*.apk
       - build/app/outputs/apk/release/*.apk
       - build/app/outputs/flutter-apk/*.apk
