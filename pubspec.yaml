@@ -9,8 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_webrtc: ^0.9.40
-  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:
