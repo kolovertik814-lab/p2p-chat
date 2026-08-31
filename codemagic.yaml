@@ -11,6 +11,14 @@ workflows:
           if [ ! -d "android" ]; then
             flutter create . --org com.p2p.chat --template=app
           fi
+      - name: Force compileSdk 36 in Gradle build.gradle
+        script: |
+          # Принудительно меняем версию компиляции на 36 во всех build.gradle файлах проекта
+          find . -name "build.gradle" -exec sed -i '' 's/compileSdkVersion 34/compileSdkVersion 36/g' {} +
+          find . -name "build.gradle" -exec sed -i '' 's/compileSdk = 34/compileSdk = 36/g' {} +
+          find . -name "build.gradle" -exec sed -i '' 's/targetSdkVersion 34/targetSdkVersion 36/g' {} +
+          find . -name "build.gradle" -exec sed -i '' 's/targetSdk = 34/targetSdk = 36/g' {} +
+          find . -name "build.gradle.kts" -exec sed -i '' 's/compileSdk = 34/compileSdk = 36/g' {} +
       - name: Build APK
         script: |
           flutter build apk --release
