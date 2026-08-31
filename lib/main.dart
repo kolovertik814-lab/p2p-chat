@@ -1,11 +1,8 @@
-
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
 
 void main() {
   runApp(const TelegramP2PApp());
@@ -31,7 +28,7 @@ class TelegramP2PApp extends StatelessWidget {
 class MessageModel {
   final String text;
   final bool isMe;
-  final String type; // 'text', 'image', 'audio'
+  final String type; // 'text', 'image'
   final Uint8List? bytes;
 
   MessageModel({
@@ -56,8 +53,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
   
   RTCPeerConnection? _peerConnection;
   RTCDataChannel? _dataChannel;
-  final AudioRecorder _audioRecorder = AudioRecorder();
-  bool _isRecording = false;
 
   final Map<String, dynamic> _rtcConfig = {
     'iceServers': [
@@ -137,36 +132,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
     }
   }
 
-  Future<void> _toggleAudioRecord() async {
-    if (_isRecording) {
-      final path = await _audioRecorder.stop();
-      setState(() {
-        _isRecording = false;
-      });
-      if (path != null) {
-        setState(() {
-          _messages.add(MessageModel(text: 'Голосовое сообщение', isMe: true, type: 'audio'));
-        });
-      }
-    } else {
-      if (await _audioRecorder.hasPermission()) {
-        final dir = await getTemporaryDirectory();
-        await _audioRecorder.start(
-          const RecordConfig(),
-          path: '${dir.path}/gs_${DateTime.now().millisecondsSinceEpoch}.m4a',
-        );
-        setState(() {
-          _isRecording = true;
-        });
-      }
-    }
-  }
-
   @override
   void dispose() {
     _peerConnection?.close();
     _dataChannel?.close();
-    _audioRecorder.dispose();
     _msgController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -241,13 +210,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       border: InputBorder.none,
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(
-                    _isRecording ? Icons.stop : Icons.mic,
-                    color: _isRecording ? Colors.red : Colors.grey,
-                  ),
-                  onPressed: _toggleAudioRecord,
                 ),
                 IconButton(
                   icon: const Icon(Icons.send, color: Color(0xFF2AABEE)),
