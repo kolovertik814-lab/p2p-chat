@@ -1,511 +1,530 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  runApp(const TelegramP2PApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const P2PChatApp());
 }
 
-class TelegramP2PApp extends StatelessWidget {
-  const TelegramP2PApp({super.key});
+class P2PChatApp extends StatelessWidget {
+  const P2PChatApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Telegram P2P',
+      title: 'P2P Chat',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF1D2733),
-        primaryColor: const Color(0xFF2AABEE),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF212D3B),
-          elevation: 0,
-        ),
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        useMaterial3: true,
       ),
-      home: const AuthScreen(),
+      home: const AuthCheckScreen(),
     );
   }
 }
 
-enum MessageType { text, image }
-
-class ChatMessage {
-  final String id;
-  final String sender;
-  final MessageType type;
-  final String? text;
-  final String? imagePath;
-  final DateTime timestamp;
-  final bool isMe;
-
-  ChatMessage({
-    required this.id,
-    required this.sender,
-    required this.type,
-    this.text,
-    this.imagePath,
-    required this.timestamp,
-    required this.isMe,
-  });
-}
-
-class ChatItem {
-  final String username;
-  final String name;
-  final List<ChatMessage> messages;
-
-  ChatItem({
-    required this.username,
-    required this.name,
-    List<ChatMessage>? messages,
-  }) : messages = messages ?? [];
-
-  String get lastMessageText {
-    if (messages.isEmpty) return 'Нет сообщений';
-    final last = messages.last;
-    return last.type == MessageType.text ? (last.text ?? '') : '📷 Фотография';
-  }
-
-  String get lastMessageTime {
-    if (messages.isEmpty) return '';
-    final last = messages.last;
-    return '${last.timestamp.hour.toString().padLeft(2, '0')}:${last.timestamp.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+// ==================== ПРОВЕРКА АВТОРИЗАЦИИ ====================
+class AuthCheckScreen extends StatefulWidget {
+  const AuthCheckScreen({super.key});
 
   @override
-  State<AuthScreen> createState() => _AuthScreenState();
+  State<AuthCheckScreen> createState() => _AuthCheckScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
-  final TextEditingController _usernameController = TextEditingController();
+class _AuthCheckScreenState extends State<AuthCheckScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkSavedUser();
+  }
 
-  void _login() {
-    final username = _usernameController.text.trim().replaceAll('@', '');
-    if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Пожалуйста, введите ваш логин')),
+  Future<void> _checkSavedUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedName = prefs.getString('my_nickname');
+
+    if (!mounted) return;
+
+    if (savedName != null && savedName.trim().isNotEmpty) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => MainChatScreen(nickname: savedName)),
       );
-      return;
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
     }
+  }
 
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+// ==================== ЭКРАН ВХОДА ====================
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _nameController = TextEditingController();
+
+  Future<void> _saveAndEnter() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('my_nickname', name);
+
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => HomeScreen(myUsername: username),
-      ),
+      MaterialPageRoute(builder: (_) => MainChatScreen(nickname: name)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 90,
-                height: 90,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2AABEE),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.send_rounded, size: 48, color: Colors.white),
+      appBar: AppBar(title: const Text('Вход в P2P Чат')),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.account_circle, size: 80, color: Colors.indigo),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Введите ваш никнейм',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Добро пожаловать в P2P Чаты',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _saveAndEnter,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Придумайте себе уникальный логин',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _usernameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Ваш @логин',
-                  prefixText: '@ ',
-                  prefixStyle: const TextStyle(color: Color(0xFF2AABEE), fontWeight: FontWeight.bold),
-                  fillColor: const Color(0xFF18222D),
-                  filled: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2AABEE),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  onPressed: _login,
-                  child: const Text('Войти и начать чат', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
-              ),
-            ],
-          ),
+              child: const Text('Войти', style: TextStyle(fontSize: 18)),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  final String myUsername;
-  const HomeScreen({super.key, required this.myUsername});
+// ==================== МОДЕЛЬ СООБЩЕНИЯ ====================
+class ChatMessage {
+  final String sender;
+  final String? text;
+  final String? imagePath;
+  final bool isMe;
+  final DateTime timestamp;
 
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ChatMessage({
+    required this.sender,
+    this.text,
+    this.imagePath,
+    required this.isMe,
+    required this.timestamp,
+  });
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final List<ChatItem> _chats = [];
-  final TextEditingController _addChatController = TextEditingController();
+// ==================== ГЛАВНЫЙ ЭКРАН ЧАТА ====================
+class MainChatScreen extends StatefulWidget {
+  final String nickname;
+  const MainChatScreen({super.key, required this.nickname});
+
+  @override
+  State<MainChatScreen> createState() => _MainChatScreenState();
+}
+
+class _MainChatScreenState extends State<MainChatScreen> {
+  final List<ChatMessage> _messages = [];
+  final TextEditingController _msgController = TextEditingController();
+  final TextEditingController _ipController = TextEditingController();
+
+  ServerSocket? _serverSocket;
+  Socket? _clientSocket;
+  String _localIp = 'Загрузка IP...';
+  bool _isConnected = false;
+  final ImagePicker _picker = ImagePicker();
+
+  static const int port = 4545;
 
   @override
   void initState() {
     super.initState();
-    _chats.add(ChatItem(
-      username: 'support_bot',
-      name: 'Служба поддержки P2P',
-      messages: [
-        ChatMessage(
-          id: '1',
-          sender: 'support_bot',
-          type: MessageType.text,
-          text: 'Привет! Нажмите + внизу или иконку сверху, чтобы добавить собеседника по @логину.',
-          timestamp: DateTime.now(),
-          isMe: false,
-        )
-      ],
-    ));
-  }
-
-  void _addNewChatDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF212D3B),
-        title: const Text('Новый чат'),
-        content: TextField(
-          controller: _addChatController,
-          decoration: InputDecoration(
-            hintText: 'Введите @логин пользователя',
-            prefixText: '@',
-            fillColor: const Color(0xFF18222D),
-            filled: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2AABEE)),
-            onPressed: () {
-              final tag = _addChatController.text.trim().replaceAll('@', '');
-              if (tag.isNotEmpty) {
-                setState(() {
-                  _chats.insert(0, ChatItem(username: tag, name: '@$tag'));
-                });
-                _addChatController.clear();
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Создать'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Чаты', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add_alt_1),
-            onPressed: _addNewChatDialog,
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        backgroundColor: const Color(0xFF1D2733),
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Color(0xFF212D3B)),
-              accountName: Text('@${widget.myUsername}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              accountEmail: const Text('P2P Сеть активна', style: TextStyle(color: Color(0xFF2AABEE))),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: const Color(0xFF2AABEE),
-                child: Text(
-                  widget.myUsername.isNotEmpty ? widget.myUsername[0].toUpperCase() : 'U',
-                  style: const TextStyle(fontSize: 28, color: Colors.white),
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.redAccent),
-              title: const Text('Сменить логин'),
-              onTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const AuthScreen()),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-      body: _chats.isEmpty
-          ? const Center(
-              child: Text(
-                'У вас пока нет чатов.\nНажмите + чтобы добавить собеседника.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
-          : ListView.separated(
-              itemCount: _chats.length,
-              separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFF10171D)),
-              itemBuilder: (context, index) {
-                final chat = _chats[index];
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: CircleAvatar(
-                    radius: 26,
-                    backgroundColor: const Color(0xFF2B5278),
-                    child: Text(
-                      chat.name.replaceAll('@', '')[0].toUpperCase(),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                  ),
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(chat.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text(chat.lastMessageTime, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    ],
-                  ),
-                  subtitle: Text(
-                    chat.lastMessageText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatDetailScreen(
-                          chat: chat,
-                          myUsername: widget.myUsername,
-                        ),
-                      ),
-                    );
-                    setState(() {});
-                  },
-                );
-              },
-            ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: const Color(0xFF2AABEE),
-        onPressed: _addNewChatDialog,
-        child: const Icon(Icons.edit, color: Colors.white),
-      ),
-    );
-  }
-}
-
-class ChatDetailScreen extends StatefulWidget {
-  final ChatItem chat;
-  final String myUsername;
-
-  const ChatDetailScreen({super.key, required this.chat, required this.myUsername});
-
-  @override
-  State<ChatDetailScreen> createState() => _ChatDetailScreenState();
-}
-
-class _ChatDetailScreenState extends State<ChatDetailScreen> {
-  final TextEditingController _msgController = TextEditingController();
-  final ImagePicker _picker = ImagePicker();
-
-  void _sendTextMessage() {
-    final text = _msgController.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      widget.chat.messages.add(
-        ChatMessage(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          sender: widget.myUsername,
-          type: MessageType.text,
-          text: text,
-          timestamp: DateTime.now(),
-          isMe: true,
-        ),
-      );
-      _msgController.clear();
-    });
-  }
-
-  Future<void> _pickAndSendImage() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      setState(() {
-        widget.chat.messages.add(
-          ChatMessage(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            sender: widget.myUsername,
-            type: MessageType.image,
-            imagePath: image.path,
-            timestamp: DateTime.now(),
-            isMe: true,
-          ),
-        );
-      });
-    }
+    _initNetwork();
   }
 
   @override
   void dispose() {
+    _serverSocket?.close();
+    _clientSocket?.close();
     _msgController.dispose();
+    _ipController.dispose();
     super.dispose();
+  }
+
+  // --- ИНИЦИАЛИЗА СЕТИ ---
+  Future<void> _initNetwork() async {
+    // Получаем локальный IP
+    try {
+      for (var interface in await NetworkInterface.list()) {
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            setState(() {
+              _localIp = addr.address;
+            });
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _localIp = 'Ошибка получения IP';
+      });
+    }
+
+    // Запускаем TCP Сервер для приема входящих подключений
+    try {
+      _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
+      _serverSocket!.listen((Socket socket) {
+        _handleIncomingConnection(socket);
+      });
+    } catch (e) {
+      debugPrint('Ошибка запуска сервера: $e');
+    }
+  }
+
+  void _handleIncomingConnection(Socket socket) {
+    _clientSocket = socket;
+    setState(() {
+      _isConnected = true;
+    });
+
+    utf8.decoder.bind(socket).transform(const LineSplitter()).listen(
+      (data) => _processReceivedData(data),
+      onDone: () {
+        setState(() {
+          _isConnected = false;
+        });
+      },
+      onError: (e) {
+        setState(() {
+          _isConnected = false;
+        });
+      },
+    );
+  }
+
+  // --- ПОДКЛЮЧЕНИЕ К ДРУГОМУ УСТРОЙСТВУ ---
+  Future<void> _connectToPeer() async {
+    final targetIp = _ipController.text.trim();
+    if (targetIp.isEmpty) return;
+
+    try {
+      final socket = await Socket.connect(targetIp, port, timeout: const Duration(seconds: 5));
+      _handleIncomingConnection(socket);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Успешно подключено к $targetIp')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось подключиться: $e')),
+        );
+      }
+    }
+  }
+
+  // --- ОБРАБОТКА ПОЛУЧЕННЫХ ДАННЫХ ---
+  Future<void> _processReceivedData(String rawData) async {
+    try {
+      final json = jsonDecode(rawData);
+      final sender = json['sender'] ?? 'Неизвестный';
+      final type = json['type'];
+
+      if (type == 'text') {
+        setState(() {
+          _messages.add(ChatMessage(
+            sender: sender,
+            text: json['text'],
+            isMe: false,
+            timestamp: DateTime.now(),
+          ));
+        });
+      } else if (type == 'image') {
+        final base64Image = json['data'];
+        final bytes = base64Decode(base64Image);
+
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await file.writeAsBytes(bytes);
+
+        setState(() {
+          _messages.add(ChatMessage(
+            sender: sender,
+            imagePath: file.path,
+            isMe: false,
+            timestamp: DateTime.now(),
+          ));
+        });
+      }
+    } catch (e) {
+      debugPrint('Ошибка разбора сообщения: $e');
+    }
+  }
+
+  // --- ОТПРАВКА ТЕКСТА ---
+  void _sendTextMessage() {
+    final text = _msgController.text.trim();
+    if (text.isEmpty) return;
+
+    final payload = {
+      'type': 'text',
+      'sender': widget.nickname,
+      'text': text,
+    };
+
+    _sendPayload(payload);
+
+    setState(() {
+      _messages.add(ChatMessage(
+        sender: widget.nickname,
+        text: text,
+        isMe: true,
+        timestamp: DateTime.now(),
+      ));
+    });
+
+    _msgController.clear();
+  }
+
+  // --- ОТПРАВКА КАРТИНКИ ---
+  Future<void> _pickAndSendImage() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (image == null) return;
+
+    final bytes = await File(image.path).readAsBytes();
+    final base64Image = base64Encode(bytes);
+
+    final payload = {
+      'type': 'image',
+      'sender': widget.nickname,
+      'data': base64Image,
+    };
+
+    _sendPayload(payload);
+
+    setState(() {
+      _messages.add(ChatMessage(
+        sender: widget.nickname,
+        imagePath: image.path,
+        isMe: true,
+        timestamp: DateTime.now(),
+      ));
+    });
+  }
+
+  void _sendPayload(Map<String, dynamic> payload) {
+    if (_clientSocket != null && _isConnected) {
+      _clientSocket!.write(jsonEncode(payload) + '\n');
+    }
+  }
+
+  // --- ВЫХОД ИЗ АККАУНТА ---
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('my_nickname');
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: const Color(0xFF2B5278),
-              child: Text(
-                widget.chat.name.replaceAll('@', '')[0].toUpperCase(),
-                style: const TextStyle(fontSize: 14, color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.chat.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const Text('в сети', style: TextStyle(fontSize: 12, color: Color(0xFF2AABEE))),
-              ],
-            ),
+            Text('Привет, ${widget.nickname}'),
+            Text('Мой IP: $_localIp', style: const TextStyle(fontSize: 12)),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.exit_to_app),
+            tooltip: 'Выйти',
+            onPressed: _logout,
+          ),
+        ],
       ),
       body: Column(
         children: [
+          // Панель подключения к собеседнику
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: _isConnected ? Colors.green.shade50 : Colors.red.shade50,
+            child: Row(
+              children: [
+                Icon(
+                  _isConnected ? Icons.check_circle : Icons.error_outline,
+                  color: _isConnected ? Colors.green : Colors.red,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _isConnected
+                      ? const Text('Соединено с собеседником', style: TextStyle(fontWeight: FontWeight.bold))
+                      : TextField(
+                          controller: _ipController,
+                          decoration: const InputDecoration(
+                            hintText: 'IP второго устройства',
+                            isDense: true,
+                          ),
+                        ),
+                ),
+                if (!_isConnected)
+                  ElevatedButton(
+                    onPressed: _connectToPeer,
+                    child: const Text('Соединить'),
+                  ),
+              ],
+            ),
+          ),
+          // Список сообщений
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(12),
-              itemCount: widget.chat.messages.length,
+              itemCount: _messages.length,
               itemBuilder: (context, index) {
-                final msg = widget.chat.messages[index];
-                return Align(
-                  alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(8),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    decoration: BoxDecoration(
-                      color: msg.isMe ? const Color(0xFF2B5278) : const Color(0xFF182533),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (msg.type == MessageType.text)
-                          Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: Text(
-                              msg.text ?? '',
-                              style: const TextStyle(color: Colors.white, fontSize: 15),
-                            ),
-                          ),
-                        if (msg.type == MessageType.image && msg.imagePath != null)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Image.file(
-                              File(msg.imagePath!),
-                              width: 200,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        const SizedBox(height: 4),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4.0),
-                          child: Text(
-                            '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(color: Colors.grey, fontSize: 10),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
+                final msg = _messages[index];
+                return _buildMessageBubble(msg);
               },
             ),
           ),
+          // Панель ввода и отправки
           Container(
-            color: const Color(0xFF212D3B),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.all(8),
+            color: Colors.grey.shade100,
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.attach_file, color: Colors.grey),
+                  icon: const Icon(Icons.attach_file, color: Colors.indigo),
                   onPressed: _pickAndSendImage,
                 ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
-                    style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      hintText: 'Сообщение',
+                      hintText: 'Сообщение...',
                       border: InputBorder.none,
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Color(0xFF2AABEE)),
+                  icon: const Icon(Icons.send, color: Colors.indigo),
                   onPressed: _sendTextMessage,
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(ChatMessage msg) {
+    return Align(
+      alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.vertical(4),
+        padding: const EdgeInsets.all(10),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        decoration: BoxDecoration(
+          color: msg.isMe ? Colors.indigo.shade100 : Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              msg.sender,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black54),
+            ),
+            const SizedBox(height: 4),
+            if (msg.text != null)
+              Text(msg.text!, style: const TextStyle(fontSize: 16)),
+            if (msg.imagePath != null)
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullScreenImageScreen(imagePath: msg.imagePath!),
+                    ),
+                  );
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    File(msg.imagePath!),
+                    width: 200,
+                    height: 200,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== ПРОСМОТР ФОТО ВО ВЕСЬ ЭКРАН С ЗУМОМ ====================
+class FullScreenImageScreen extends StatelessWidget {
+  final String imagePath;
+  const FullScreenImageScreen({super.key, required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Image.file(File(imagePath)),
+        ),
       ),
     );
   }
