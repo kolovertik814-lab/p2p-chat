@@ -6,9 +6,18 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  final opt = DefaultFirebaseOptions.android;
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options: FirebaseOptions(
+      apiKey: opt['apiKey']!,
+      appId: opt['appId']!,
+      messagingSenderId: opt['messagingSenderId']!,
+      projectId: opt['projectId']!,
+      databaseURL: opt['databaseURL'],
+    ),
   );
+  
   runApp(const P2PChatApp());
 }
 
