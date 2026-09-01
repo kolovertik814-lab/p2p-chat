@@ -1,6 +1,6 @@
 // Generated for GitHub-only workflow
-import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
-import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
@@ -24,7 +24,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyA...', // Если у тебя нет под рукой ключа, можешь нажать Next в консоли Firebase до конца, главное мы создали проект
+    apiKey: 'AIzaSyA...',
     appId: '1:552455976634:android:6a19ef96331857c21f7483',
     messagingSenderId: '552455976634',
     projectId: 'p2p-webrtc-chat',
