@@ -68,7 +68,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _peerConnection = await createPeerConnection(rtcConfig);
 
-    // Создаем DataChannel для отправки текста напрямую
     _dataChannel = await _peerConnection!.createDataChannel("chat", RTCDataChannelInit());
     _setupDataChannel();
 
@@ -89,7 +88,6 @@ class _ChatScreenState extends State<ChatScreen> {
       connectionStatus = 'Комната создана. Ждем подключение...';
     });
 
-    // Слушаем ответ от клиента
     _dbRef.child('rooms/$roomId/answer').onValue.listen((event) async {
       if (event.snapshot.value != null && _peerConnection!.remoteDescription == null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
@@ -101,7 +99,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
 
-    // Слушаем ICE кандидаты клиента
     _dbRef.child('rooms/$roomId/clientCandidates').onChildAdded.listen((event) async {
       if (event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
@@ -140,7 +137,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     };
 
-    // Получаем оффер хоста
     DatabaseEvent event = await _dbRef.child('rooms/$roomId/offer').once();
     if (event.snapshot.value == null) {
       setState(() {
@@ -161,7 +157,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'sdp': answer.sdp,
     });
 
-    // Слушаем ICE кандидаты хоста
     _dbRef.child('rooms/$roomId/hostCandidates').onChildAdded.listen((event) async {
       if (event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
@@ -176,7 +171,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _setupDataChannel() {
-    _dataChannel!.onMessage = (RTCDataChannelMessage message) {
+    _dataChannel!.onMessage = (message) {
       setState(() {
         messages.add('Друг: ${message.text}');
       });
@@ -187,6 +182,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_msgController.text.trim().isEmpty) return;
     String text = _msgController.text.trim();
     
+    // Исправлено: передаем строку напрямую
     _dataChannel?.send(RTCDataChannelMessage(text));
     setState(() {
       messages.add('Я: $text');
