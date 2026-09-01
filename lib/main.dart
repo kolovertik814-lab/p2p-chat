@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -160,6 +159,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   final List<ChatMessage> _messages = [];
   final TextEditingController _msgController = TextEditingController();
   final TextEditingController _ipController = TextEditingController();
+  final ScrollController _scrollController = ScrollController(); 
 
   ServerSocket? _serverSocket;
   Socket? _clientSocket;
@@ -181,30 +181,43 @@ class _MainChatScreenState extends State<MainChatScreen> {
     _clientSocket?.close();
     _msgController.dispose();
     _ipController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  // --- ИНИЦИАЛИЗА СЕТИ ---
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  // --- ИНИЦИАЛИЗАЦИЯ СЕТИ ---
   Future<void> _initNetwork() async {
-    // Получаем локальный IP
     try {
       for (var interface in await NetworkInterface.list()) {
         for (var addr in interface.addresses) {
           if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
-            setState(() {
-              _localIp = addr.address;
-            });
+            if (mounted) {
+              setState(() {
+                _localIp = addr.address;
+              });
+            }
             break;
           }
         }
       }
     } catch (e) {
-      setState(() {
-        _localIp = 'Ошибка получения IP';
-      });
+      if (mounted) {
+        setState(() {
+          _localIp = 'Ошибка получения IP';
+        });
+      }
     }
 
-    // Запускаем TCP Сервер для приема входящих подключений
     try {
       _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _serverSocket!.listen((Socket socket) {
@@ -217,21 +230,29 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   void _handleIncomingConnection(Socket socket) {
     _clientSocket = socket;
-    setState(() {
-      _isConnected = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isConnected = true;
+      });
+    }
 
     utf8.decoder.bind(socket).transform(const LineSplitter()).listen(
       (data) => _processReceivedData(data),
       onDone: () {
-        setState(() {
-          _isConnected = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isConnected = false;
+            _clientSocket = null;
+          });
+        }
       },
       onError: (e) {
-        setState(() {
-          _isConnected = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isConnected = false;
+            _clientSocket = null;
+          });
+        }
       },
     );
   }
@@ -274,6 +295,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
             timestamp: DateTime.now(),
           ));
         });
+        Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
       } else if (type == 'image') {
         final base64Image = json['data'];
         final bytes = base64Decode(base64Image);
@@ -290,6 +312,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
             timestamp: DateTime.now(),
           ));
         });
+        Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
       }
     } catch (e) {
       debugPrint('Ошибка разбора сообщения: $e');
@@ -319,11 +342,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
 
     _msgController.clear();
+    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
   }
 
   // --- ОТПРАВКА КАРТИНКИ ---
   Future<void> _pickAndSendImage() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    // Ограничиваем размер фото, чтобы огромная base64-строка не сломала LineSplitter
+    final XFile? image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 50,
+      maxWidth: 800,
+      maxHeight: 800,
+    );
     if (image == null) return;
 
     final bytes = await File(image.path).readAsBytes();
@@ -345,11 +375,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
         timestamp: DateTime.now(),
       ));
     });
+    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
   }
 
   void _sendPayload(Map<String, dynamic> payload) {
     if (_clientSocket != null && _isConnected) {
-      _clientSocket!.write(jsonEncode(payload) + '\n');
+      _clientSocket!.write('${jsonEncode(payload)}\n');
     }
   }
 
@@ -419,6 +450,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           // Список сообщений
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(12),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
@@ -462,7 +494,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
     return Align(
       alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.vertical(4),
+        // Ошибка исправлена: используем EdgeInsets.symmetric(vertical: 4)
+        margin: const EdgeInsets.symmetric(vertical: 4), 
         padding: const EdgeInsets.all(10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
@@ -477,9 +510,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black54),
             ),
             const SizedBox(height: 4),
-            if (msg.text != null)
+            if (msg.text != null && msg.text!.isNotEmpty)
               Text(msg.text!, style: const TextStyle(fontSize: 16)),
-            if (msg.imagePath != null)
+            if (msg.imagePath != null) ...[
+              if (msg.text != null && msg.text!.isNotEmpty) const SizedBox(height: 8),
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -499,6 +533,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),
