@@ -1,9 +1,8 @@
 // Generated for GitHub-only workflow
-import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart';
 
 class DefaultFirebaseOptions {
-  static FirebaseOptions get currentPlatform {
+  static get currentPlatform {
     if (kIsWeb) {
       throw UnsupportedError('DefaultFirebaseOptions have not been configured for web.');
     }
@@ -23,11 +22,11 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyA...',
-    appId: '1:552455976634:android:6a19ef96331857c21f7483',
-    messagingSenderId: '552455976634',
-    projectId: 'p2p-webrtc-chat',
-    databaseURL: 'https://p2p-webrtc-chat-default-rtdb.europe-west1.firebasedatabase.app',
-  );
+  static const android = {
+    'apiKey': 'AIzaSyA...',
+    'appId': '1:552455976634:android:6a19ef96331857c21f7483',
+    'messagingSenderId': '552455976634',
+    'projectId': 'p2p-webrtc-chat',
+    'databaseURL': 'https://p2p-webrtc-chat-default-rtdb.europe-west1.firebasedatabase.app',
+  };
 }
