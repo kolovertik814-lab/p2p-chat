@@ -182,7 +182,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_msgController.text.trim().isEmpty) return;
     String text = _msgController.text.trim();
     
-    // Исправлено: передаем строку напрямую
     _dataChannel?.send(RTCDataChannelMessage(text));
     setState(() {
       messages.add('Я: $text');
