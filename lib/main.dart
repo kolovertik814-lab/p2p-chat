@@ -1,13 +1,14 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'firebase_options.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const P2PChatApp());
 }
 
@@ -17,548 +18,228 @@ class P2PChatApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'P2P Chat',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.indigo,
-        useMaterial3: true,
-      ),
-      home: const AuthCheckScreen(),
+      title: 'P2P WebRTC Chat',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const ChatScreen(),
     );
   }
 }
 
-// ==================== ПРОВЕРКА АВТОРИЗАЦИИ ====================
-class AuthCheckScreen extends StatefulWidget {
-  const AuthCheckScreen({super.key});
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
 
   @override
-  State<AuthCheckScreen> createState() => _AuthCheckScreenState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _AuthCheckScreenState extends State<AuthCheckScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _checkSavedUser();
-  }
-
-  Future<void> _checkSavedUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedName = prefs.getString('my_nickname');
-
-    if (!mounted) return;
-
-    if (savedName != null && savedName.trim().isNotEmpty) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => MainChatScreen(nickname: savedName)),
-      );
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
-  }
-}
-
-// ==================== ЭКРАН ВХОДА ====================
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _nameController = TextEditingController();
-
-  Future<void> _saveAndEnter() async {
-    final name = _nameController.text.trim();
-    if (name.isEmpty) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('my_nickname', name);
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => MainChatScreen(nickname: name)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Вход в P2P Чат')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.account_circle, size: 80, color: Colors.indigo),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Введите ваш никнейм',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _saveAndEnter,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(50),
-              ),
-              child: const Text('Войти', style: TextStyle(fontSize: 18)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==================== МОДЕЛЬ СООБЩЕНИЯ ====================
-class ChatMessage {
-  final String sender;
-  final String? text;
-  final String? imagePath;
-  final bool isMe;
-  final DateTime timestamp;
-
-  ChatMessage({
-    required this.sender,
-    this.text,
-    this.imagePath,
-    required this.isMe,
-    required this.timestamp,
-  });
-}
-
-// ==================== ГЛАВНЫЙ ЭКРАН ЧАТА ====================
-class MainChatScreen extends StatefulWidget {
-  final String nickname;
-  const MainChatScreen({super.key, required this.nickname});
-
-  @override
-  State<MainChatScreen> createState() => _MainChatScreenState();
-}
-
-class _MainChatScreenState extends State<MainChatScreen> {
-  final List<ChatMessage> _messages = [];
+class _ChatScreenState extends State<ChatScreen> {
+  RTCPeerConnection? _peerConnection;
+  RTCDataChannel? _dataChannel;
   final TextEditingController _msgController = TextEditingController();
-  final TextEditingController _ipController = TextEditingController();
-  final ScrollController _scrollController = ScrollController(); 
+  final TextEditingController _roomController = TextEditingController();
+  List<String> messages = [];
+  String connectionStatus = 'Не подключено';
+  bool isHost = false;
 
-  ServerSocket? _serverSocket;
-  Socket? _clientSocket;
-  String _localIp = 'Загрузка IP...';
-  bool _isConnected = false;
-  final ImagePicker _picker = ImagePicker();
+  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  static const int port = 4545;
-
-  @override
-  void initState() {
-    super.initState();
-    _initNetwork();
-  }
+  final Map<String, dynamic> rtcConfig = {
+    'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+    ]
+  };
 
   @override
   void dispose() {
-    _serverSocket?.close();
-    _clientSocket?.close();
+    _peerConnection?.dispose();
     _msgController.dispose();
-    _ipController.dispose();
-    _scrollController.dispose();
+    _roomController.dispose();
     super.dispose();
   }
 
-  void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
-  }
+  Future<void> _createRoom() async {
+    setState(() {
+      isHost = true;
+      connectionStatus = 'Создание комнаты...';
+    });
 
-  // --- ИНИЦИАЛИЗАЦИЯ СЕТИ ---
-  Future<void> _initNetwork() async {
-    try {
-      for (var interface in await NetworkInterface.list()) {
-        for (var addr in interface.addresses) {
-          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
-            if (mounted) {
-              setState(() {
-                _localIp = addr.address;
-              });
-            }
-            break;
-          }
-        }
+    String roomId = _roomController.text.trim();
+    if (roomId.isEmpty) roomId = 'default_room';
+
+    _peerConnection = await createPeerConnection(rtcConfig);
+
+    // Создаем DataChannel для отправки текста напрямую
+    _dataChannel = await _peerConnection!.createDataChannel("chat", RTCDataChannelInit());
+    _setupDataChannel();
+
+    _peerConnection!.onIceCandidate = (candidate) {
+      if (candidate != null) {
+        _dbRef.child('rooms/$roomId/hostCandidates').push().set(candidate.toMap());
       }
-    } catch (e) {
-      if (mounted) {
+    };
+
+    RTCSessionDescription offer = await _peerConnection!.createOffer();
+    await _peerConnection!.setLocalDescription(offer);
+
+    await _dbRef.child('rooms/$roomId').set({
+      'offer': {'type': offer.type, 'sdp': offer.sdp}
+    });
+
+    setState(() {
+      connectionStatus = 'Комната создана. Ждем подключение...';
+    });
+
+    // Слушаем ответ от клиента
+    _dbRef.child('rooms/$roomId/answer').onValue.listen((event) async {
+      if (event.snapshot.value != null && _peerConnection!.remoteDescription == null) {
+        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        RTCSessionDescription answer = RTCSessionDescription(data['sdp'], data['type']);
+        await _peerConnection!.setRemoteDescription(answer);
         setState(() {
-          _localIp = 'Ошибка получения IP';
+          connectionStatus = 'Прямое соединение установлено!';
         });
       }
-    }
+    });
 
-    try {
-      _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
-      _serverSocket!.listen((Socket socket) {
-        _handleIncomingConnection(socket);
-      });
-    } catch (e) {
-      debugPrint('Ошибка запуска сервера: $e');
-    }
+    // Слушаем ICE кандидаты клиента
+    _dbRef.child('rooms/$roomId/clientCandidates').onChildAdded.listen((event) async {
+      if (event.snapshot.value != null) {
+        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        RTCIceCandidate candidate = RTCIceCandidate(
+          data['candidate'],
+          data['sdpMid'],
+          data['sdpMLineIndex'],
+        );
+        await _peerConnection!.addCandidate(candidate);
+      }
+    });
   }
 
-  void _handleIncomingConnection(Socket socket) {
-    _clientSocket = socket;
-    if (mounted) {
+  Future<void> _joinRoom() async {
+    setState(() {
+      isHost = false;
+      connectionStatus = 'Подключение к комнате...';
+    });
+
+    String roomId = _roomController.text.trim();
+    if (roomId.isEmpty) roomId = 'default_room';
+
+    _peerConnection = await createPeerConnection(rtcConfig);
+
+    _peerConnection!.onDataChannel = (channel) {
+      _dataChannel = channel;
+      _setupDataChannel();
       setState(() {
-        _isConnected = true;
+        connectionStatus = 'Прямое соединение установлено!';
       });
-    }
-
-    utf8.decoder.bind(socket).transform(const LineSplitter()).listen(
-      (data) => _processReceivedData(data),
-      onDone: () {
-        if (mounted) {
-          setState(() {
-            _isConnected = false;
-            _clientSocket = null;
-          });
-        }
-      },
-      onError: (e) {
-        if (mounted) {
-          setState(() {
-            _isConnected = false;
-            _clientSocket = null;
-          });
-        }
-      },
-    );
-  }
-
-  // --- ПОДКЛЮЧЕНИЕ К ДРУГОМУ УСТРОЙСТВУ ---
-  Future<void> _connectToPeer() async {
-    final targetIp = _ipController.text.trim();
-    if (targetIp.isEmpty) return;
-
-    try {
-      final socket = await Socket.connect(targetIp, port, timeout: const Duration(seconds: 5));
-      _handleIncomingConnection(socket);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Успешно подключено к $targetIp')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не удалось подключиться: $e')),
-        );
-      }
-    }
-  }
-
-  // --- ОБРАБОТКА ПОЛУЧЕННЫХ ДАННЫХ ---
-  Future<void> _processReceivedData(String rawData) async {
-    try {
-      final json = jsonDecode(rawData);
-      final sender = json['sender'] ?? 'Неизвестный';
-      final type = json['type'];
-
-      if (type == 'text') {
-        setState(() {
-          _messages.add(ChatMessage(
-            sender: sender,
-            text: json['text'],
-            isMe: false,
-            timestamp: DateTime.now(),
-          ));
-        });
-        Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-      } else if (type == 'image') {
-        final base64Image = json['data'];
-        final bytes = base64Decode(base64Image);
-
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg');
-        await file.writeAsBytes(bytes);
-
-        setState(() {
-          _messages.add(ChatMessage(
-            sender: sender,
-            imagePath: file.path,
-            isMe: false,
-            timestamp: DateTime.now(),
-          ));
-        });
-        Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-      }
-    } catch (e) {
-      debugPrint('Ошибка разбора сообщения: $e');
-    }
-  }
-
-  // --- ОТПРАВКА ТЕКСТА ---
-  void _sendTextMessage() {
-    final text = _msgController.text.trim();
-    if (text.isEmpty) return;
-
-    final payload = {
-      'type': 'text',
-      'sender': widget.nickname,
-      'text': text,
     };
 
-    _sendPayload(payload);
+    _peerConnection!.onIceCandidate = (candidate) {
+      if (candidate != null) {
+        _dbRef.child('rooms/$roomId/clientCandidates').push().set(candidate.toMap());
+      }
+    };
 
-    setState(() {
-      _messages.add(ChatMessage(
-        sender: widget.nickname,
-        text: text,
-        isMe: true,
-        timestamp: DateTime.now(),
-      ));
+    // Получаем оффер хоста
+    DatabaseEvent event = await _dbRef.child('rooms/$roomId/offer').once();
+    if (event.snapshot.value == null) {
+      setState(() {
+        connectionStatus = 'Комната не найдена!';
+      });
+      return;
+    }
+
+    final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+    RTCSessionDescription offer = RTCSessionDescription(data['sdp'], data['type']);
+    await _peerConnection!.setRemoteDescription(offer);
+
+    RTCSessionDescription answer = await _peerConnection!.createAnswer();
+    await _peerConnection!.setLocalDescription(answer);
+
+    await _dbRef.child('rooms/$roomId/answer').set({
+      'type': answer.type,
+      'sdp': answer.sdp,
     });
 
+    // Слушаем ICE кандидаты хоста
+    _dbRef.child('rooms/$roomId/hostCandidates').onChildAdded.listen((event) async {
+      if (event.snapshot.value != null) {
+        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        RTCIceCandidate candidate = RTCIceCandidate(
+          data['candidate'],
+          data['sdpMid'],
+          data['sdpMLineIndex'],
+        );
+        await _peerConnection!.addCandidate(candidate);
+      }
+    });
+  }
+
+  void _setupDataChannel() {
+    _dataChannel!.onMessage = (RTCDataChannelMessage message) {
+      setState(() {
+        messages.add('Друг: ${message.text}');
+      });
+    };
+  }
+
+  void _sendMessage() {
+    if (_msgController.text.trim().isEmpty) return;
+    String text = _msgController.text.trim();
+    
+    _dataChannel?.send(RTCDataChannelMessage(text));
+    setState(() {
+      messages.add('Я: $text');
+    });
     _msgController.clear();
-    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-  }
-
-  // --- ОТПРАВКА КАРТИНКИ ---
-  Future<void> _pickAndSendImage() async {
-    // Ограничиваем размер фото, чтобы огромная base64-строка не сломала LineSplitter
-    final XFile? image = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 50,
-      maxWidth: 800,
-      maxHeight: 800,
-    );
-    if (image == null) return;
-
-    final bytes = await File(image.path).readAsBytes();
-    final base64Image = base64Encode(bytes);
-
-    final payload = {
-      'type': 'image',
-      'sender': widget.nickname,
-      'data': base64Image,
-    };
-
-    _sendPayload(payload);
-
-    setState(() {
-      _messages.add(ChatMessage(
-        sender: widget.nickname,
-        imagePath: image.path,
-        isMe: true,
-        timestamp: DateTime.now(),
-      ));
-    });
-    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-  }
-
-  void _sendPayload(Map<String, dynamic> payload) {
-    if (_clientSocket != null && _isConnected) {
-      _clientSocket!.write('${jsonEncode(payload)}\n');
-    }
-  }
-
-  // --- ВЫХОД ИЗ АККАУНТА ---
-  Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('my_nickname');
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: AppBar(title: const Text('P2P WebRTC Chat')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
           children: [
-            Text('Привет, ${widget.nickname}'),
-            Text('Мой IP: $_localIp', style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.exit_to_app),
-            tooltip: 'Выйти',
-            onPressed: _logout,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Панель подключения к собеседнику
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: _isConnected ? Colors.green.shade50 : Colors.red.shade50,
-            child: Row(
+            Text('Статус: $connectionStatus', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _roomController,
+              decoration: const InputDecoration(labelText: 'Имя комнаты (например, secret123)'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Icon(
-                  _isConnected ? Icons.check_circle : Icons.error_outline,
-                  color: _isConnected ? Colors.green : Colors.red,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _isConnected
-                      ? const Text('Соединено с собеседником', style: TextStyle(fontWeight: FontWeight.bold))
-                      : TextField(
-                          controller: _ipController,
-                          decoration: const InputDecoration(
-                            hintText: 'IP второго устройства',
-                            isDense: true,
-                          ),
-                        ),
-                ),
-                if (!_isConnected)
-                  ElevatedButton(
-                    onPressed: _connectToPeer,
-                    child: const Text('Соединить'),
-                  ),
+                ElevatedButton(onPressed: _createRoom, child: const Text('Создать комнату')),
+                ElevatedButton(onPressed: _joinRoom, child: const Text('Войти в комнату')),
               ],
             ),
-          ),
-          // Список сообщений
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return _buildMessageBubble(msg);
-              },
+            const Divider(height: 20),
+            Expanded(
+              child: ListView.builder(
+                itemCount: messages.length,
+                itemBuilder: (context, index) {
+                  return ListTile(title: Text(messages[index]));
+                },
+              ),
             ),
-          ),
-          // Панель ввода и отправки
-          Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.grey.shade100,
-            child: Row(
+            Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file, color: Colors.indigo),
-                  onPressed: _pickAndSendImage,
-                ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
-                    decoration: const InputDecoration(
-                      hintText: 'Сообщение...',
-                      border: InputBorder.none,
-                    ),
+                    decoration: const InputDecoration(hintText: 'Введите сообщение...'),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Colors.indigo),
-                  onPressed: _sendTextMessage,
+                  icon: const Icon(Icons.send),
+                  onPressed: _sendMessage,
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(ChatMessage msg) {
-    return Align(
-      alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        // Ошибка исправлена: используем EdgeInsets.symmetric(vertical: 4)
-        margin: const EdgeInsets.symmetric(vertical: 4), 
-        padding: const EdgeInsets.all(10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: msg.isMe ? Colors.indigo.shade100 : Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              msg.sender,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black54),
-            ),
-            const SizedBox(height: 4),
-            if (msg.text != null && msg.text!.isNotEmpty)
-              Text(msg.text!, style: const TextStyle(fontSize: 16)),
-            if (msg.imagePath != null) ...[
-              if (msg.text != null && msg.text!.isNotEmpty) const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => FullScreenImageScreen(imagePath: msg.imagePath!),
-                    ),
-                  );
-                },
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(msg.imagePath!),
-                    width: 200,
-                    height: 200,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ],
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==================== ПРОСМОТР ФОТО ВО ВЕСЬ ЭКРАН С ЗУМОМ ====================
-class FullScreenImageScreen extends StatelessWidget {
-  final String imagePath;
-  const FullScreenImageScreen({super.key, required this.imagePath});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Image.file(File(imagePath)),
         ),
       ),
     );
