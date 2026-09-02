@@ -1,5 +1,5 @@
 name: p2p_chat
-description: "P2P Chat Application"
+description: "P2P WebRTC Chat Application"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -7,7 +7,7 @@ version: 1.0.0+1
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
-  dependencies:
+dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.2.2
@@ -17,6 +17,7 @@ environment:
   firebase_core: ^3.6.0
   firebase_database: ^11.1.4
   flutter_webrtc: ^0.12.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
