@@ -6,27 +6,15 @@ workflows:
     environment:
       flutter: stable
     scripts:
-      - name: Recreate Android directory for clean state
+      - name: Recreate Android directory
         script: |
           rm -rf android
           flutter create . --org com.p2p.chat --template=app
-      - name: Force compileSdkVersion 36 for all subprojects
-        script: |
-          cat << 'EOF' >> android/build.gradle.kts
-
-          subprojects {
-              plugins.withId("com.android.library") {
-                  (property("android") as? com.android.build.gradle.BaseExtension)?.compileSdkVersion(36)
-              }
-              plugins.withId("com.android.application") {
-                  (property("android") as? com.android.build.gradle.BaseExtension)?.compileSdkVersion(36)
-              }
-          }
-          EOF
-      - name: Clean and Get dependencies
+      - name: Clean, Get dependencies and patch plugins
         script: |
           flutter clean
           flutter pub get
+          find "$HOME/.pub-cache" -name "build.gradle*" -exec perl -pi -e 's/compileSdk(Version)?\s*=?\s*\d+/compileSdkVersion 36/g' {} +
       - name: Build APK via Flutter CLI
         script: |
           flutter build apk --release
