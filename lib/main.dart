@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'firebase_options.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -48,6 +49,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<String> messages = [];
   String connectionStatus = 'Не подключено';
   bool isHost = false;
+  bool _isRemoteSet = false;
 
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
@@ -69,6 +71,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       isHost = true;
       connectionStatus = 'Создание комнаты...';
+      _isRemoteSet = false;
     });
 
     String roomId = _roomController.text.trim();
@@ -97,7 +100,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     _dbRef.child('rooms/$roomId/answer').onValue.listen((event) async {
-      if (event.snapshot.value != null && _peerConnection!.remoteDescription == null) {
+      if (event.snapshot.value != null && !_isRemoteSet) {
+        _isRemoteSet = true;
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
         RTCSessionDescription answer = RTCSessionDescription(data['sdp'], data['type']);
         await _peerConnection!.setRemoteDescription(answer);
