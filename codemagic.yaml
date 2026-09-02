@@ -11,8 +11,9 @@ workflows:
           if [ ! -d "android" ]; then
             flutter create . --org com.p2p.chat --template=app
           fi
-      - name: Get Flutter dependencies
+      - name: Clean and Get Flutter dependencies
         script: |
+          flutter clean
           flutter pub get
       - name: Build APK via Flutter CLI
         script: |
