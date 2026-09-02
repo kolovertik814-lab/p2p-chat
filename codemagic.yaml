@@ -11,16 +11,19 @@ workflows:
           if [ ! -d "android" ]; then
             flutter create . --org com.p2p.chat --template=app
           fi
-      - name: Force compileSdkVersion 36 for all plugins
+      - name: Force compileSdkVersion 36 without afterEvaluate
         script: |
           cat << 'EOF' >> android/build.gradle.kts
 
           subprojects {
-              afterEvaluate {
-                  if (plugins.hasPlugin("com.android.application") || plugins.hasPlugin("com.android.library")) {
-                      configure<com.android.build.gradle.BaseExtension> {
-                          compileSdkVersion(36)
-                      }
+              plugins.withId("com.android.library") {
+                  configure<com.android.build.gradle.BaseExtension> {
+                      compileSdkVersion(36)
+                  }
+              }
+              plugins.withId("com.android.application") {
+                  configure<com.android.build.gradle.BaseExtension> {
+                      compileSdkVersion(36)
                   }
               }
           }
